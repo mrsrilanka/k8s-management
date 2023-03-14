@@ -1,0 +1,54 @@
+apiVersion: v1beta1
+kind: ServiceAccount
+metadata:
+  name: terminator-sa # service account for binding the pod
+# b. Defining the role & the API groups it access, depending upon the need/requirement.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: terminator-role # Defines a role and what API Groups it can access
+rules:
+- apiGroups: [""]
+  resources: ["pods","jobs"]
+  verbs: ["delete", "get", "list"]
+# c. Binding the Role & Service Account.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: terminator-rb # This will bind the role and service account
+subjects:
+- kind: ServiceAccount
+  name: terminator-sa
+roleRef:
+  kind: Role
+  name: terminator-role
+  apiGroup: rbac.authorization.k8s.io
+# d. Cron Job will run every 5 minute. Configure the respources/parameters according to the need & frequency.
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: terminator
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: terminator-sa
+          containers:
+          - name: terminator
+            image: bitnami/kubectl:latest
+            command:
+            - kubectl
+            args:
+            - delete
+            - pod
+            - '--all-namespaces'                         # specifying all the namespaces. going forward we can limit it to *-eng or none kube-system NS's
+            - '--field-selector=status.phase!=Running '  # pods that are in not running phase
+            - '--force'                                  # If deleting already in a stuck status, without force, sometimes doesn’t make any difference. 
+            - '&&'                                       # Starting the second line of arguments for the Jobs
+            - delete
+            - job
+            - '--all-namespaces'                         # specifying all the namespaces. going forward we can limit it to *-eng or none kube-system NS's
+            - '--field-selector=status.successful=0'     # jobs that are completed/pending etc 
+          restartPolicy: OnFailure
